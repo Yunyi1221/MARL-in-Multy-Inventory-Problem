@@ -131,3 +131,9 @@ class ReplenishmentEnv:
     def inventory_position(self):
         """On-hand plus pipeline inventory, used by the baseline policies."""
         return self.inventory + self.pipeline.sum(axis=-1)
+
+    def urgency(self):
+        """OR urgency score per warehouse, (n_envs, n_agents): expected shortfall of the
+        inventory position against demand over lead time + 1, weighted by the stockout penalty."""
+        shortfall = self.mu * (self.cfg.lead_time + 1) - self.inventory_position()
+        return self.b * shortfall

@@ -14,6 +14,10 @@ from ormat.baselines import best_baselines
 from ormat.envs import EnvConfig
 
 
+def method_label(mode):
+    return mode.upper() if mode in ("ippo", "mappo", "happo") else f"MAT-{mode}"
+
+
 def load(results_dir):
     runs = defaultdict(list)
     for path in sorted(glob.glob(os.path.join(results_dir, "*_s*", "progress.csv"))):
@@ -40,9 +44,11 @@ def main():
         print(f"{name:<44}{mean:>16.1f}{'-':>7}")
     for mode, rs in runs.items():
         final = [float(r[-1]["eval_cost"]) for r in rs]
-        ranks = np.mean([[float(r[-1][f"rank_{i}"]) for i in range(cfg.n_agents)] for r in rs], axis=0)
-        print(f"{'MAT-' + mode:<44}{np.mean(final):>9.1f} ± {np.std(final):<5.1f}{len(rs):>6}   "
-              f"{np.round(ranks, 2).tolist()}")
+        ranks = ""
+        if "rank_0" in rs[0][-1]:
+            ranks = np.mean([[float(r[-1][f"rank_{i}"]) for i in range(cfg.n_agents)] for r in rs], axis=0)
+            ranks = np.round(ranks, 2).tolist()
+        print(f"{method_label(mode):<44}{np.mean(final):>9.1f} ± {np.std(final):<5.1f}{len(rs):>6}   {ranks}")
 
     try:
         import matplotlib
@@ -58,7 +64,7 @@ def main():
         x = np.array([int(r["env_steps"]) for r in rs[0][:n]])
         y = np.array([[float(row["eval_cost"]) for row in r[:n]] for r in rs])
         m, s = y.mean(0), y.std(0)
-        ax.plot(x, m, label=f"MAT-{mode}")
+        ax.plot(x, m, label=method_label(mode))
         ax.fill_between(x, m - s, m + s, alpha=0.2)
     labels = ["base-stock (critical ratio)", "(s,S) grid search", "priority base-stock"]
     for (mean, _), label, ls in zip(baselines.values(), labels, ("--", ":", "-.")):
