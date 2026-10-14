@@ -1,0 +1,3 @@
+numpy
+torch
+matplotlib  # only needed by the plot scripts
