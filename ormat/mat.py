@@ -3,6 +3,8 @@
 order_mode:
   fixed   agents act in index order 0..N-1 (original MAT)
   random  a fresh random order at every step (the random order used by HAPPO / MAT)
+  urgency the order is supplied by the caller (OR urgency ranking, most urgent first); it is
+          part of the state, not of the action, so it carries no log-probability
   learned a scoring network + Plackett-Luce sampling learns the order (the core idea of PMAT)
   none    no autoregression; each agent only sees the encoder output (parameter-shared,
           MAPPO-style simultaneous decisions)
@@ -17,7 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
 
-ORDER_MODES = ("fixed", "random", "learned", "none")
+ORDER_MODES = ("fixed", "random", "urgency", "learned", "none")
 
 
 def init_(m, gain=0.01, relu=False):
@@ -177,12 +179,18 @@ class MultiAgentTransformer(nn.Module):
 
     # ------------------------------------------------------------------ #
     @torch.no_grad()
-    def act(self, obs, deterministic=False):
-        """obs: (B, N, obs_dim). Returns actions, per-agent logp, values, perm, order_logp."""
+    def act(self, obs, deterministic=False, perm=None):
+        """obs: (B, N, obs_dim). Returns actions, per-agent logp, values, perm, order_logp.
+        perm is required in urgency mode and ignored otherwise."""
         B, N = obs.shape[:2]
         dev = obs.device
         rep, values = self.encode(obs)
-        perm, order_logp = self.sample_order(rep, deterministic)
+        if self.order_mode == "urgency":
+            if perm is None:
+                raise ValueError("urgency mode needs perm from the caller")
+            order_logp = torch.zeros(B, device=dev)
+        else:
+            perm, order_logp = self.sample_order(rep, deterministic)
         rep_o = gather_agents(rep, perm)
 
         dec_in = self._start_token(B, N, dev)

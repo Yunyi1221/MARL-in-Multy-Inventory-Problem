@@ -1,6 +1,6 @@
 # ormat: multi-warehouse replenishment with a Multi-Agent Transformer
 
-A small project that uses a minimal MAT to study whether the order in which agents choose their actions matters in an operations-research problem.
+A small project that uses a minimal MAT (and IPPO / MAPPO / HAPPO for comparison) to study whether the order in which agents choose their actions matters in an operations-research problem.
 
 ## Problem
 
@@ -21,8 +21,12 @@ A small project that uses a minimal MAT to study whether the order in which agen
 | priority-rationing base-stock | When total orders exceed capacity, serve warehouses in decreasing order of b; a hand-written, capacity-aware heuristic |
 | MAT-fixed | Original MAT; warehouses act in index order |
 | MAT-random | A new random order every step |
+| MAT-urgency | Order given each step by the OR urgency score bᵢ · (μᵢ(L+1) − inventory positionᵢ), most urgent first |
 | MAT-learned | A scoring network + Plackett-Luce sampling learns the order (the core idea of PMAT); the order is trained with PPO as part of the action |
 | MAT-none | No autoregression; all warehouses act simultaneously (MAPPO-style) |
+| IPPO | `ppo_marl.py`: shared MLP actor and per-agent critic on the local observation + agent ID |
+| MAPPO | `ppo_marl.py`: shared MLP actor + centralized MLP critic on all observations |
+| HAPPO | `ppo_marl.py`: one MLP actor per warehouse + centralized critic; actors updated sequentially in a random order with the ratio-product correction |
 
 ## Running
 
@@ -30,6 +34,7 @@ A small project that uses a minimal MAT to study whether the order in which agen
 pip install -r requirements.txt
 python -m ormat.baselines --capacity-ratio 0.85
 python -m ormat.train --order-mode learned --seed 0 --capacity-ratio 0.85   # about 5 minutes on one CPU thread
+python -m ormat.ppo_marl --algo mappo --seed 0 --capacity-ratio 0.85        # ippo / mappo / happo, about 1 to 2 minutes
 python -m ormat.plot --results ormat/results_cap0.85 --capacity-ratio 0.85
 ```
 
@@ -46,15 +51,21 @@ Mean cost per episode over 200 evaluation episodes after 300 PPO updates (480k e
 | MAT-random | 1133 ± 9 | 1387 ± 13 |
 | MAT-learned | 1133 ± 6 | **1362 ± 19** |
 | MAT-none | 1129 ± 3 | 1376 ± 14 |
+| MAT-urgency | 1128 ± 5 | 1392 ± 5 |
+| IPPO | 1136 ± 8 | 1422 ± 14 |
+| MAPPO | 1124 ± 3 | 1395 ± 50 |
+| HAPPO | 1125 ± 4 | 1398 ± 42 |
 
 Learning curves: `results/curves.png` and `results_cap0.85/curves.png`.
 
 Observations:
 
 1. **With loose capacity, the order does not matter.** Every method ties with base-stock, so this setting cannot separate the methods.
-2. **With tight capacity**, every MAT variant is far better than base-stock and (s,S), which ignore the capacity. The learned order is the best of the four MAT variants, but only by one to two standard deviations; more seeds are needed.
+2. **With tight capacity**, every MAT variant is far better than base-stock and (s,S), which ignore the capacity. The learned order is the best of the MAT variants, but only by one to two standard deviations; more seeds are needed.
 3. The learned order puts **warehouse 0, with the lowest stockout penalty, first** (mean position 0.39) and the high-penalty warehouses last. One explanation is that the most important warehouse decides after seeing everyone else's order.
 4. The hand-written priority heuristic still beats every MAT variant by about 7%, so there is clear room for improvement.
+5. **IPPO, MAPPO and HAPPO land in the same range as MAT.** IPPO is the worst learned method in both settings, which fits the expectation that some centralized information helps. MAPPO and HAPPO have the best single seeds at capacity 0.85 (1334 and 1352) but also the worst ones (1457 and 1454), so their means are no better than MAT's. With 3 seeds, none of the MARL methods is significantly different from the others.
+6. **Feeding the OR urgency order into MAT did not help** (1392 ± 5, close to the fixed order). One likely reason: rationing is proportional, so the decision order cannot change who gets the capacity; it only changes what each warehouse can see. The order should matter more once rationing is first-come-first-served in decision order (see next steps).
 
 ## Next steps
 

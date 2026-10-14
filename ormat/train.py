@@ -46,6 +46,11 @@ def parse_args():
     return p.parse_args()
 
 
+def urgency_perm(env):
+    """Decision order from the OR urgency score, most urgent warehouse first."""
+    return torch.as_tensor(np.argsort(-env.urgency(), axis=1, kind="stable"))
+
+
 @torch.no_grad()
 def evaluate(model, cfg, n_episodes, seed=12345):
     """Uses the same evaluation seed as baselines.py, so results are directly comparable.
@@ -56,7 +61,8 @@ def evaluate(model, cfg, n_episodes, seed=12345):
     rank_sum = np.zeros(cfg.n_agents)
     done, steps = False, 0
     while not done:
-        actions, _, _, perm, _ = model.act(torch.as_tensor(obs), deterministic=True)
+        actions, _, _, perm, _ = model.act(torch.as_tensor(obs), deterministic=True,
+                                           perm=urgency_perm(env))
         # perm[b, k] = agent acting k-th -> position of each agent
         ranks = torch.argsort(perm, dim=1).float().mean(0).numpy()
         rank_sum += ranks
@@ -97,7 +103,7 @@ def main():
         ep_cost = np.zeros(E)
         for _ in range(T):
             o = torch.as_tensor(obs)
-            a, logp, v, perm, olp = model.act(o)
+            a, logp, v, perm, olp = model.act(o, perm=urgency_perm(env))
             obs, r, _, info = env.step(a.numpy())
             ep_cost += info["cost"]
             for k, x in zip(buf, (o, a, logp, v, torch.as_tensor(r, dtype=torch.float32), perm, olp)):
