@@ -18,6 +18,7 @@ pip install -r requirements.txt
 python -m ormat.baselines --capacity-ratio 0.85
 python -m ormat.train --order-mode learned --seed 0 --capacity-ratio 0.85
 python -m ormat.ppo_marl --algo mappo --seed 0 --capacity-ratio 0.85
+python -m ormat.ppo_marl --algo mappo --residual --seed 0 --capacity-ratio 0.85   # learn corrections to the heuristic
 python -m ormat.plot --results ormat/results_cap0.85 --capacity-ratio 0.85
 
 # HW3 multi-warehouse versions: exact solutions and policy-region plot
@@ -78,6 +79,10 @@ Shared-supplier environment, 4 warehouses, mean cost per episode over 200 evalua
 
 - With tight capacity, all MARL methods beat capacity-unaware (s,S) but none beats the hand-written priority heuristic.
 - IPPO is the weakest learned method; MAPPO, HAPPO and the MAT variants are within noise of each other with 3 seeds.
+
+### Residual learning
+
+Learning a correction δ ∈ {−3, …, +3} on top of the priority heuristic (`--residual`, see [`ormat/README.md`](ormat/README.md#residual-learning-on-top-of-the-priority-heuristic)) makes every algorithm beat the heuristic: at capacity 0.85 residual IPPO / MAPPO / MAT-fixed reach 1226 / 1229 / 1230 against the heuristic's 1272, and at 1.05 residual MAT-fixed reaches 1087 against 1123. Once the heuristic is the base, the choice of MARL algorithm matters little.
 - The OR urgency order did not help MAT here, likely because proportional rationing makes the decision order irrelevant to who receives capacity.
 
 ### Planned experiments

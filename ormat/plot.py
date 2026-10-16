@@ -15,7 +15,9 @@ from ormat.envs import EnvConfig
 
 
 def method_label(mode):
-    return mode.upper() if mode in ("ippo", "mappo", "happo") else f"MAT-{mode}"
+    prefix = "residual " if mode.startswith("res-") else ""
+    mode = mode.removeprefix("res-")
+    return prefix + (mode.upper() if mode in ("ippo", "mappo", "happo") else f"MAT-{mode}")
 
 
 def load(results_dir):
@@ -33,6 +35,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--results", default="ormat/results")
     p.add_argument("--capacity-ratio", type=float, default=EnvConfig.capacity_ratio)
+    p.add_argument("--ylim", type=float, nargs=2, default=None, help="zoom the cost axis, e.g. --ylim 1150 1350")
     args = p.parse_args()
 
     cfg = EnvConfig(capacity_ratio=args.capacity_ratio)
@@ -71,7 +74,10 @@ def main():
         ax.axhline(mean, ls=ls, c="gray", label=label)
     ax.set_xlabel("environment steps")
     ax.set_ylabel("eval cost per episode (lower is better)")
-    ax.set_ylim(top=2 * max(m for m, _ in baselines.values()))
+    if args.ylim:
+        ax.set_ylim(*args.ylim)
+    else:
+        ax.set_ylim(top=2 * max(m for m, _ in baselines.values()))
     ax.set_title(f"capacity ratio = {cfg.capacity_ratio}")
     ax.legend()
     ax.grid(alpha=0.3)
