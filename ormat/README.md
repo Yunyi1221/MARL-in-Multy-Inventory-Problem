@@ -67,9 +67,47 @@ Observations:
 5. **IPPO, MAPPO and HAPPO land in the same range as MAT.** IPPO is the worst learned method in both settings, which fits the expectation that some centralized information helps. MAPPO and HAPPO have the best single seeds at capacity 0.85 (1334 and 1352) but also the worst ones (1457 and 1454), so their means are no better than MAT's. With 3 seeds, none of the MARL methods is significantly different from the others.
 6. **Feeding the OR urgency order into MAT did not help** (1392 ± 5, close to the fixed order). One likely reason: rationing is proportional, so the decision order cannot change who gets the capacity; it only changes what each warehouse can see. The order should matter more once rationing is first-come-first-served in decision order (see next steps).
 
+## Residual learning on top of the priority heuristic
+
+`ormat/residual.py` changes what the agents learn. Instead of choosing an order quantity from scratch, each warehouse picks a correction δ ∈ {−3, …, +3} that is added to the heuristic's base-stock order before the heuristic's priority rationing:
+
+    order_i = clip(want_i + δ_i, 0, max_order),  want_i = S_i − inventory position_i
+    filled  = priority rationing of the orders (highest stockout penalty first)
+
+With δ = 0 everywhere the policy is exactly the tuned priority heuristic (checked: 1272.24 at capacity 0.85, identical to the heuristic). The policy's output layer gets a +2 logit bias on δ = 0, so training starts at the heuristic, and each observation also carries the heuristic's order. Every algorithm uses it through the `--residual` flag:
+
+```bash
+python -m ormat.train --order-mode fixed --residual --seed 0 --capacity-ratio 0.85
+python -m ormat.ppo_marl --algo ippo --residual --seed 0 --capacity-ratio 0.85
+python -m ormat.plot --results ormat/results_residual/cap0.85 --capacity-ratio 0.85 --ylim 1180 1340
+```
+
+Results (same budget and evaluation as above: 300 updates, 480k steps, 200 evaluation episodes, 3 seeds):
+
+| Method | Capacity 1.05 × demand | Capacity 0.85 × demand |
+|---|---|---|
+| priority-rationing base-stock (the residual base) | 1123 | 1272 |
+| best from-scratch MARL (table above) | 1120 ± 10 | 1362 ± 19 |
+| residual IPPO | 1093 ± 2 | **1226 ± 4** |
+| residual MAPPO | 1098 ± 2 | 1229 ± 6 |
+| residual HAPPO | 1108 ± 4 | 1237 ± 7 |
+| residual MAT-fixed | **1087 ± 3** | 1230 ± 3 |
+| residual MAT-urgency | 1099 ± 6 | 1243 ± 10 |
+| residual MAT-learned | 1103 ± 12 | 1233 ± 4 |
+
+Curves: `results_residual/cap0.85/curves.png` and `results_residual/cap1.05/curves.png`.
+
+Observations:
+
+1. **Every residual method beats the heuristic in every seed**, by 2 to 4% at capacity 0.85 and 1 to 3% at 1.05. This is the first time any learned policy here beats the priority heuristic.
+2. **The algorithms barely differ once the heuristic is the base.** At capacity 0.85 independent learners (IPPO) are as good as anything else; MAT's autoregressive coordination brings no measurable gain. A plausible reason: the heuristic's priority rationing already resolves the capacity conflict, so what is left to learn is mostly each warehouse's own state-dependent adjustment, which independent policies can represent.
+3. The curves are still going down at 480k steps, so longer training may widen the gap to the heuristic.
+4. The learned corrections are state-dependent rather than a constant shift: in the seed-0 IPPO and MAPPO policies at capacity 0.85, the two high-demand warehouses have δ ≠ 0 in 80 to 100% of steps while their mean correction stays between −0.3 and 0.
+
 ## Next steps
 
-- Treat the priority heuristic as the baseline to beat; try longer training, a larger model and value normalization.
+- Compare residual learning with a model-based rollout on the heuristic (simulate each candidate correction for a few periods and pick the cheapest).
+- Train residual policies longer and with 5 to 10 seeds.
 - Run 5 to 10 seeds per method and test for significance.
 - Change the rationing rule to first-come-first-served in decision order, so the order directly affects allocation.
 - Scale to 8 or 16 warehouses and check whether the benefit of learning the order grows.
