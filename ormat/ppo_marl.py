@@ -21,8 +21,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
 
-from ormat.envs import EnvConfig, ReplenishmentEnv
+from ormat.envs import EnvConfig
 from ormat.mat import init_
+from ormat.residual import bias_towards_zero, make_env
 
 ALGOS = ("ippo", "mappo", "happo")
 
@@ -47,6 +48,11 @@ def parse_args():
     p.add_argument("--eval-episodes", type=int, default=200)
     p.add_argument("--out-dir", default="runs")
     p.add_argument("--threads", type=int, default=1)
+    p.add_argument("--residual", action="store_true",
+                   help="learn corrections to the priority-rationing heuristic instead of raw orders")
+    p.add_argument("--max-delta", type=int, default=3, help="residual corrections lie in [-max_delta, max_delta]")
+    p.add_argument("--residual-prior", type=float, default=2.0,
+                   help="initial logit bonus for a zero correction, so training starts at the heuristic")
     return p.parse_args()
 
 
@@ -97,9 +103,9 @@ class Agents(nn.Module):
 
 
 @torch.no_grad()
-def evaluate(model, cfg, n_episodes, seed=12345):
+def evaluate(model, cfg, n_episodes, args, seed=12345):
     """Same evaluation seed and episode count as train.py and baselines.py."""
-    env = ReplenishmentEnv(cfg, n_envs=n_episodes, seed=seed)
+    env = make_env(cfg, n_episodes, seed, args.residual, args.max_delta)
     obs = env.reset()
     total_cost = np.zeros(n_episodes)
     done = False
@@ -121,12 +127,16 @@ def main():
     np.random.seed(args.seed)
 
     cfg = EnvConfig(capacity_ratio=args.capacity_ratio)
-    env = ReplenishmentEnv(cfg, n_envs=args.n_envs, seed=args.seed)
+    env = make_env(cfg, args.n_envs, args.seed, args.residual, args.max_delta)
     N, T, E = env.n_agents, cfg.horizon, args.n_envs
     model = Agents(args.algo, env.obs_dim, env.n_actions, N, args.hidden)
+    if args.residual:
+        for actor in (model.actors if args.algo == "happo" else [model.actor]):
+            bias_towards_zero(actor[-1], args.max_delta, args.residual_prior)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
 
-    run_dir = os.path.join(args.out_dir, f"{args.algo}_s{args.seed}")
+    prefix = "res-" if args.residual else ""
+    run_dir = os.path.join(args.out_dir, f"{prefix}{args.algo}_s{args.seed}")
     os.makedirs(run_dir, exist_ok=True)
     log_f = open(os.path.join(run_dir, "progress.csv"), "w", newline="")
     log = csv.writer(log_f)
@@ -205,7 +215,7 @@ def main():
                     data["m"] = data["m"] * torch.exp(new_logp - data["logp"][:, i])
 
         if update % args.eval_every == 0 or update == args.updates:
-            eval_cost = evaluate(model, cfg, args.eval_episodes)
+            eval_cost = evaluate(model, cfg, args.eval_episodes, args)
             log.writerow([update, update * T * E, f"{ep_cost.mean():.2f}", f"{eval_cost:.2f}"])
             log_f.flush()
             print(f"[{args.algo} s{args.seed}] update {update:4d} | train cost {ep_cost.mean():7.1f} | "
