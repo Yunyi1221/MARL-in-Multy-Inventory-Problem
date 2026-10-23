@@ -134,10 +134,42 @@ Observations:
 2. At capacity 1.05 residual RL gains at most 0.4%, within the seed spread.
 3. So most of the gain reported in the previous section came from replacing a weak rationing rule, not from learning. A learned policy has to be compared against the marginal-value heuristic, not the priority heuristic.
 
+## Adding a fixed ordering cost
+
+`EnvConfig.fixed_cost` (`--fixed-cost` in every script) charges F once per warehouse in every period it receives an order. With F > 0, `strong_heuristics.py` tunes per-warehouse (s, S) levels (offset of S and gap S − s, coordinate descent on a separate seed) for each rationing rule. Tuned levels are cached in `tuned_levels.json`. Raw heuristic outputs are in `results_fixed_cost10/heuristics_F10.txt` and `heuristics_F50.txt`.
+
+**F = 50 (the course value) makes the problem degenerate here.** With at most 12 units per order, h = 1 and stockout penalties of 2 and 4, the tuned policies never let the two low-demand warehouses order (their reorder points are below any reachable inventory position), so only two warehouses compete for capacity. The course model pairs F = 50 with h = 0.1 and p = 10, a different cost scale. Tuned (s, S) costs at F = 50: capacity 0.85 urgency 5140, marginal 5172, priority 5187, proportional 5247; capacity 1.05 all between 4935 and 4992.
+
+**F = 10 is used instead**: the economic order quantities (about 6 to 13 units) fit the 12-unit order limit. Even so, warehouse 0 (μ = 2, b = 2) never orders under the tuned heuristics, because holding a batch costs more than its lost sales.
+
+Results at F = 10 (3 seeds, 300 updates, 480k steps, 200 evaluation episodes; curves in `results_fixed_cost10/`):
+
+| Method | Capacity 1.05 × demand | Capacity 0.85 × demand |
+|---|---|---|
+| (s,S), proportional rationing | 2327 | 2561 |
+| (s,S), priority by b | 2325 | **2411** |
+| (s,S), urgency | 2329 | 2478 |
+| (s,S), marginal value | 2326 | 2458 |
+| IPPO (from scratch) | 2328 ± 5 | 2595 ± 31 |
+| MAPPO (from scratch) | 2327 ± 7 | 2584 ± 2 |
+| MAT-fixed (from scratch) | **2309 ± 2** | 2484 ± 1 |
+| MAT-urgency (from scratch) | 2330 ± 8 | 2520 ± 42 |
+| residual IPPO on (s,S) priority | 2323 ± 2 | 2403 ± 8 |
+| residual MAPPO on (s,S) priority | 2325 ± 2 | 2404 ± 8 |
+| residual MAT-fixed on (s,S) priority | 2324 ± 1 | 2417 ± 4 |
+
+Observations:
+
+1. **The fixed cost makes MAT clearly better than MAPPO and IPPO when learning from scratch**: about 4% at capacity 0.85 (2484 vs 2584) and 0.8% at 1.05, with small seed spread. Without a fixed cost the from-scratch methods were within noise of each other. A fixed cost rewards "one warehouse orders a batch, the others wait", a correlated joint action that independent policies cannot represent but MAT's autoregressive decoder can.
+2. **At capacity 1.05 from-scratch MAT-fixed is the first learned policy that beats every tuned heuristic** (2309 vs 2325, all three seeds between 2307 and 2311). The margin is small (0.7%).
+3. At capacity 0.85 the tuned (s,S) priority heuristic is still best; residual learning on top of it gains about 0.3%, within the seed spread.
+4. MAT with the urgency order is worse than with the fixed order here; the urgency score ignores the fixed cost.
+
 ## Next steps
 
 - Use the marginal-value heuristic as the baseline to beat from now on.
-- Add the fixed ordering cost from the course model (F = 50); this is where simple rationing rules are expected to break down and learning may help.
+- With the fixed cost, train MAT longer and with more seeds, and try residual MAT with a larger correction range, to see whether the gap to the heuristic at capacity 0.85 closes.
+- Scale the cost parameters to the course model (h = 0.1, p = 10, F = 50, larger order limit) so the fixed cost does not shut warehouses out.
 - Compare residual learning with a model-based rollout on the heuristic (simulate each candidate correction for a few periods and pick the cheapest).
 - Train residual policies longer and with 5 to 10 seeds.
 - Run 5 to 10 seeds per method and test for significance.
