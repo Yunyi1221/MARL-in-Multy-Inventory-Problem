@@ -50,6 +50,8 @@ def parse_args():
     p.add_argument("--threads", type=int, default=1)
     p.add_argument("--residual", action="store_true",
                    help="learn corrections to the priority-rationing heuristic instead of raw orders")
+    p.add_argument("--residual-base", choices=("priority", "marginal"), default="priority",
+                   help="heuristic the residual corrections are added to")
     p.add_argument("--max-delta", type=int, default=3, help="residual corrections lie in [-max_delta, max_delta]")
     p.add_argument("--residual-prior", type=float, default=2.0,
                    help="initial logit bonus for a zero correction, so training starts at the heuristic")
@@ -105,7 +107,7 @@ class Agents(nn.Module):
 @torch.no_grad()
 def evaluate(model, cfg, n_episodes, args, seed=12345):
     """Same evaluation seed and episode count as train.py and baselines.py."""
-    env = make_env(cfg, n_episodes, seed, args.residual, args.max_delta)
+    env = make_env(cfg, n_episodes, seed, args.residual, args.max_delta, args.residual_base)
     obs = env.reset()
     total_cost = np.zeros(n_episodes)
     done = False
@@ -127,7 +129,7 @@ def main():
     np.random.seed(args.seed)
 
     cfg = EnvConfig(capacity_ratio=args.capacity_ratio)
-    env = make_env(cfg, args.n_envs, args.seed, args.residual, args.max_delta)
+    env = make_env(cfg, args.n_envs, args.seed, args.residual, args.max_delta, args.residual_base)
     N, T, E = env.n_agents, cfg.horizon, args.n_envs
     model = Agents(args.algo, env.obs_dim, env.n_actions, N, args.hidden)
     if args.residual:
@@ -135,7 +137,7 @@ def main():
             bias_towards_zero(actor[-1], args.max_delta, args.residual_prior)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
 
-    prefix = "res-" if args.residual else ""
+    prefix = ("res-" if args.residual_base == "priority" else "resm-") if args.residual else ""
     run_dir = os.path.join(args.out_dir, f"{prefix}{args.algo}_s{args.seed}")
     os.makedirs(run_dir, exist_ok=True)
     log_f = open(os.path.join(run_dir, "progress.csv"), "w", newline="")

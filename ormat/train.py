@@ -46,6 +46,8 @@ def parse_args():
     p.add_argument("--threads", type=int, default=1)
     p.add_argument("--residual", action="store_true",
                    help="learn corrections to the priority-rationing heuristic instead of raw orders")
+    p.add_argument("--residual-base", choices=("priority", "marginal"), default="priority",
+                   help="heuristic the residual corrections are added to")
     p.add_argument("--max-delta", type=int, default=3, help="residual corrections lie in [-max_delta, max_delta]")
     p.add_argument("--residual-prior", type=float, default=2.0,
                    help="initial logit bonus for a zero correction, so training starts at the heuristic")
@@ -61,7 +63,7 @@ def urgency_perm(env):
 def evaluate(model, cfg, n_episodes, args, seed=12345):
     """Uses the same evaluation seed as baselines.py, so results are directly comparable.
     Returns the mean episode cost and each warehouse's mean decision position."""
-    env = make_env(cfg, n_episodes, seed, args.residual, args.max_delta)
+    env = make_env(cfg, n_episodes, seed, args.residual, args.max_delta, args.residual_base)
     obs = env.reset()
     total_cost = np.zeros(n_episodes)
     rank_sum = np.zeros(cfg.n_agents)
@@ -85,7 +87,7 @@ def main():
     np.random.seed(args.seed)
 
     cfg = EnvConfig(capacity_ratio=args.capacity_ratio)
-    env = make_env(cfg, args.n_envs, args.seed, args.residual, args.max_delta)
+    env = make_env(cfg, args.n_envs, args.seed, args.residual, args.max_delta, args.residual_base)
     N, T, E = env.n_agents, cfg.horizon, args.n_envs
     model = MultiAgentTransformer(env.obs_dim, env.n_actions, N, n_embd=args.n_embd,
                                   n_block=args.n_block, order_mode=args.order_mode)
@@ -93,7 +95,7 @@ def main():
         bias_towards_zero(model.policy_head[-1], args.max_delta, args.residual_prior)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
 
-    prefix = "res-" if args.residual else ""
+    prefix = ("res-" if args.residual_base == "priority" else "resm-") if args.residual else ""
     run_dir = os.path.join(args.out_dir, f"{prefix}{args.order_mode}_s{args.seed}")
     os.makedirs(run_dir, exist_ok=True)
     log_f = open(os.path.join(run_dir, "progress.csv"), "w", newline="")

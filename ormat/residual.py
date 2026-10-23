@@ -6,7 +6,8 @@ before the heuristic's priority rationing is applied:
 
     want_i  = base-stock order of warehouse i (order up to S_i)
     order_i = clip(want_i + delta_i, 0, max_order)
-    filled  = priority rationing of the orders (highest stockout penalty served first)
+    filled  = the heuristic's rationing of the orders (priority by stockout penalty, or
+              marginal-value allocation with --residual-base marginal)
 
 With delta = 0 everywhere the policy is exactly the priority heuristic, so the heuristic
 is reachable by every learner. The policy head is initialised with a bias towards
@@ -20,6 +21,7 @@ import torch
 
 from ormat.baselines import PriorityBaseStockPolicy, critical_ratio_levels, evaluate_policy
 from ormat.envs import EnvConfig, ReplenishmentEnv
+from ormat.strong_heuristics import RationedBaseStockPolicy, tuned_levels
 
 
 @functools.lru_cache(maxsize=None)
@@ -38,41 +40,41 @@ def _tuned_offset(cfg_key):
     return best[1]
 
 
-def heuristic_policy(cfg: EnvConfig):
-    """The tuned priority-rationing base-stock policy used as the residual base."""
-    offset = _tuned_offset(tuple(sorted(vars(cfg).items())))
-    S = np.maximum(np.asarray(critical_ratio_levels(cfg)) + offset, 0)
-    return PriorityBaseStockPolicy(S, cfg.stockout_cost, ReplenishmentEnv(cfg).capacity,
-                                   max_order=cfg.max_order)
+def heuristic_policy(cfg: EnvConfig, rule: str = "priority"):
+    """The heuristic used as the residual base.
+
+    priority  the original heuristic: one common offset to the critical-ratio levels,
+              capacity served in order of decreasing stockout penalty
+    marginal  per-warehouse levels, capacity given unit by unit to the warehouse with the
+              largest newsvendor marginal value (see strong_heuristics.py)
+    """
+    key = tuple(sorted(vars(cfg).items()))
+    if rule == "priority":
+        S = np.maximum(np.asarray(critical_ratio_levels(cfg)) + _tuned_offset(key), 0)
+    else:
+        S = tuned_levels(key, rule)
+    return RationedBaseStockPolicy(cfg, S, rule)
 
 
 class ResidualEnv(ReplenishmentEnv):
     """Same dynamics and costs as ReplenishmentEnv; actions are corrections to the heuristic."""
 
-    def __init__(self, cfg: EnvConfig, n_envs: int = 1, seed: int = 0, max_delta: int = 3):
+    def __init__(self, cfg: EnvConfig, n_envs: int = 1, seed: int = 0, max_delta: int = 3,
+                 base_rule: str = "priority"):
         super().__init__(cfg, n_envs, seed)
         self.max_delta = max_delta
         self.n_actions = 2 * max_delta + 1  # action k means delta = k - max_delta
-        self.base = heuristic_policy(cfg)
+        self.base = heuristic_policy(cfg, base_rule)
         self.obs_dim += 1  # heuristic order
 
-    def heuristic_want(self):
-        """Base-stock order of each warehouse before rationing, (n_envs, n_agents)."""
-        return super(PriorityBaseStockPolicy, self.base).act(self)
-
     def heuristic_order(self):
-        """What the heuristic itself would order after priority rationing."""
+        """What the heuristic itself would order after rationing."""
         return self.base.act(self)
 
     def apply_delta(self, actions):
         delta = np.asarray(actions) - self.max_delta
-        want = np.clip(self.heuristic_want() + delta, 0, self.cfg.max_order)
-        out = np.zeros_like(want)
-        left = np.full(want.shape[0], self.base.capacity)
-        for i in self.base.order:
-            out[:, i] = np.minimum(want[:, i], left)
-            left -= out[:, i]
-        return out
+        want = np.clip(self.base.want(self) + delta, 0, self.cfg.max_order)
+        return self.base.ration(self, want)
 
     def step(self, actions):
         return super().step(self.apply_delta(actions))
@@ -83,9 +85,10 @@ class ResidualEnv(ReplenishmentEnv):
         return np.concatenate([base, h.astype(np.float32)], axis=-1)
 
 
-def make_env(cfg: EnvConfig, n_envs: int, seed: int, residual: bool, max_delta: int = 3):
+def make_env(cfg: EnvConfig, n_envs: int, seed: int, residual: bool, max_delta: int = 3,
+             base_rule: str = "priority"):
     if residual:
-        return ResidualEnv(cfg, n_envs, seed, max_delta)
+        return ResidualEnv(cfg, n_envs, seed, max_delta, base_rule)
     return ReplenishmentEnv(cfg, n_envs, seed)
 
 
