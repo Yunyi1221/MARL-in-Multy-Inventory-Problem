@@ -1,0 +1,8 @@
+capacity 0.85  marginal     S=[4, 12, 24, 36] s=[-8, 0, 12, 24] tuning cost  5178.5 | eval cost  5172.2 ± 204.0
+capacity 0.85  priority     S=[4, 12, 27, 37] s=[-8, 0, 15, 25] tuning cost  5199.1 | eval cost  5186.6 ± 196.3
+capacity 0.85  proportional S=[4, 12, 20, 36] s=[-8, 0, 8, 24] tuning cost  5251.8 | eval cost  5246.5 ± 207.8
+capacity 0.85  urgency      S=[4, 12, 24, 36] s=[-8, 0, 12, 24] tuning cost  5149.3 | eval cost  5140.4 ± 198.7
+capacity 1.05  marginal     S=[8, 9, 27, 38] s=[-4, -1, 15, 26] tuning cost  4937.0 | eval cost  4935.0 ± 165.8
+capacity 1.05  priority     S=[12, 9, 27, 38] s=[0, -1, 15, 26] tuning cost  4946.8 | eval cost  4947.9 ± 159.3
+capacity 1.05  proportional S=[10, 9, 27, 37] s=[-2, -1, 15, 25] tuning cost  5001.8 | eval cost  4992.4 ± 178.7
+capacity 1.05  urgency      S=[12, 9, 27, 39] s=[0, -1, 15, 27] tuning cost  4945.4 | eval cost  4935.7 ± 146.9
