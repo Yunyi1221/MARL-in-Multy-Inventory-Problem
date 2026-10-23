@@ -17,7 +17,9 @@ Usage: python -m ormat.strong_heuristics --capacity-ratio 0.85
 """
 import argparse
 import functools
+import json
 import math
+import os
 
 import numpy as np
 
@@ -102,11 +104,27 @@ class RationedBaseStockPolicy:
         return out.astype(np.int64)
 
 
+CACHE_FILE = os.path.join(os.path.dirname(__file__), "tuned_levels.json")
+
+
 @functools.lru_cache(maxsize=None)
 def tuned_levels(cfg_key, rule):
-    """Cached tune() for a config given as a sorted tuple of its fields; returns (S, s)."""
-    S, s, _ = tune(EnvConfig(**dict(cfg_key)), rule)
-    return S, s
+    """tune() for a config given as a sorted tuple of its fields; returns (S, s).
+
+    Results are cached in tuned_levels.json so parallel training runs do not repeat the search."""
+    key = f"{rule} {cfg_key}"
+    try:
+        with open(CACHE_FILE) as f:
+            cache = json.load(f)
+    except (OSError, ValueError):
+        cache = {}
+    if key not in cache:
+        S, s, _ = tune(EnvConfig(**dict(cfg_key)), rule)
+        cache[key] = {"S": S.tolist(), "s": None if s is None else s.tolist()}
+        with open(CACHE_FILE, "w") as f:
+            json.dump(cache, f, indent=1, sort_keys=True)
+    entry = cache[key]
+    return np.asarray(entry["S"]), None if entry["s"] is None else np.asarray(entry["s"])
 
 
 def tune(cfg: EnvConfig, rule, n_episodes=400, seed=999, span=6, passes=3):
