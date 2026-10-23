@@ -104,8 +104,40 @@ Observations:
 3. The curves are still going down at 480k steps, so longer training may widen the gap to the heuristic.
 4. The learned corrections are state-dependent rather than a constant shift: in the seed-0 IPPO and MAPPO policies at capacity 0.85, the two high-demand warehouses have δ ≠ 0 in 80 to 100% of steps while their mean correction stays between −0.3 and 0.
 
+## Is the residual gain from learning or from a weak baseline?
+
+The priority heuristic above tunes a single common offset and serves warehouses in a fixed order of stockout penalty. `ormat/strong_heuristics.py` tunes the order-up-to level of each warehouse separately (coordinate descent on a separate seed) and compares three rationing rules:
+
+| Rationing rule | Capacity 1.05 × demand | Capacity 0.85 × demand |
+|---|---|---|
+| priority by b, one common offset (the residual base above) | 1123 | 1272 |
+| priority by b, per-warehouse levels | 1123 | 1268 |
+| urgency b·(μ(L+1) − inventory position), recomputed every step | 1137 | 1379 |
+| **marginal value**: each unit goes to the warehouse with the largest b·P(D > y) − h·P(D ≤ y), D ~ Poisson(μ(L+1)) | **1097** | **1224** |
+| best residual RL on the priority base (above) | 1087 | 1226 |
+
+The marginal-value rule needs no training and matches the best residual RL at capacity 0.85. Per-warehouse tuning alone changes almost nothing; the rationing rule is what matters.
+
+Residual RL on top of the marginal-value heuristic (`--residual-base marginal`, same budget, 3 seeds; results in `results_residual_marginal/`):
+
+| Method | Capacity 1.05 × demand | Capacity 0.85 × demand |
+|---|---|---|
+| marginal-value heuristic (the base) | 1097 | 1224 |
+| residual IPPO | 1094 ± 7 | 1224 ± 0 |
+| residual MAPPO | 1098 ± 6 | 1223 ± 1 |
+| residual HAPPO | 1095 ± 1 | 1224 ± 0 |
+| residual MAT-fixed | 1093 ± 3 | 1224 ± 0 |
+
+Observations:
+
+1. **At capacity 0.85 learning adds nothing on top of the marginal-value heuristic.** The policies do make corrections (for example, in seed 0 of residual IPPO one warehouse has δ ≠ 0 in 95% of steps), but the cost does not move, so the heuristic sits on a flat optimum for corrections of this kind.
+2. At capacity 1.05 residual RL gains at most 0.4%, within the seed spread.
+3. So most of the gain reported in the previous section came from replacing a weak rationing rule, not from learning. A learned policy has to be compared against the marginal-value heuristic, not the priority heuristic.
+
 ## Next steps
 
+- Use the marginal-value heuristic as the baseline to beat from now on.
+- Add the fixed ordering cost from the course model (F = 50); this is where simple rationing rules are expected to break down and learning may help.
 - Compare residual learning with a model-based rollout on the heuristic (simulate each candidate correction for a few periods and pick the cheapest).
 - Train residual policies longer and with 5 to 10 seeds.
 - Run 5 to 10 seeds per method and test for significance.

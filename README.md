@@ -19,6 +19,7 @@ python -m ormat.baselines --capacity-ratio 0.85
 python -m ormat.train --order-mode learned --seed 0 --capacity-ratio 0.85
 python -m ormat.ppo_marl --algo mappo --seed 0 --capacity-ratio 0.85
 python -m ormat.ppo_marl --algo mappo --residual --seed 0 --capacity-ratio 0.85   # learn corrections to the heuristic
+python -m ormat.strong_heuristics --capacity-ratio 0.85                         # per-warehouse tuning, three rationing rules
 python -m ormat.plot --results ormat/results_cap0.85 --capacity-ratio 0.85
 
 # HW3 multi-warehouse versions: exact solutions and policy-region plot
@@ -82,7 +83,7 @@ Shared-supplier environment, 4 warehouses, mean cost per episode over 200 evalua
 
 ### Residual learning
 
-Learning a correction δ ∈ {−3, …, +3} on top of the priority heuristic (`--residual`, see [`ormat/README.md`](ormat/README.md#residual-learning-on-top-of-the-priority-heuristic)) makes every algorithm beat the heuristic: at capacity 0.85 residual IPPO / MAPPO / MAT-fixed reach 1226 / 1229 / 1230 against the heuristic's 1272, and at 1.05 residual MAT-fixed reaches 1087 against 1123. Once the heuristic is the base, the choice of MARL algorithm matters little.
+Learning a correction δ ∈ {−3, …, +3} on top of the priority heuristic (`--residual`, see [`ormat/README.md`](ormat/README.md#residual-learning-on-top-of-the-priority-heuristic)) makes every algorithm beat the heuristic: at capacity 0.85 residual IPPO / MAPPO / MAT-fixed reach 1226 / 1229 / 1230 against the heuristic's 1272, and at 1.05 residual MAT-fixed reaches 1087 against 1123. Once the heuristic is the base, the choice of MARL algorithm matters little. However, a stronger heuristic that allocates capacity by newsvendor marginal value ([`ormat/strong_heuristics.py`](ormat/strong_heuristics.py)) reaches 1224 at capacity 0.85 and 1097 at 1.05 without any training, and residual RL on top of it gains nothing at 0.85 and at most 0.4% at 1.05 (see [`ormat/README.md`](ormat/README.md#is-the-residual-gain-from-learning-or-from-a-weak-baseline)).
 - The OR urgency order did not help MAT here, likely because proportional rationing makes the decision order irrelevant to who receives capacity.
 
 ### Planned experiments

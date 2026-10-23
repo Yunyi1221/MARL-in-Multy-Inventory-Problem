@@ -15,8 +15,11 @@ from ormat.envs import EnvConfig
 
 
 def method_label(mode):
-    prefix = "residual " if mode.startswith("res-") else ""
-    mode = mode.removeprefix("res-")
+    prefix = ""
+    for tag, label in (("resm-", "residual (marginal base) "), ("res-", "residual ")):
+        if mode.startswith(tag):
+            prefix, mode = label, mode[len(tag):]
+            break
     return prefix + (mode.upper() if mode in ("ippo", "mappo", "happo") else f"MAT-{mode}")
 
 
