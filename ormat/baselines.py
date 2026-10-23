@@ -111,9 +111,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--episodes", type=int, default=500)
     parser.add_argument("--capacity-ratio", type=float, default=EnvConfig.capacity_ratio)
+    parser.add_argument("--fixed-cost", type=float, default=EnvConfig.fixed_cost,
+                   help="fixed cost per warehouse order")
     args = parser.parse_args()
 
-    cfg = EnvConfig(capacity_ratio=args.capacity_ratio)
+    cfg = EnvConfig(capacity_ratio=args.capacity_ratio, fixed_cost=args.fixed_cost)
     print(f"supplier capacity C = {ReplenishmentEnv(cfg).capacity}, mean total demand = {sum(cfg.demand_mean)}")
     for name, (mean, std) in best_baselines(cfg, args.episodes).items():
         print(f"{name}: cost per episode {mean:.1f} ± {std:.1f}")

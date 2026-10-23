@@ -8,7 +8,8 @@ N warehouses share one supplier with limited capacity. At every time step:
      pipeline arrives into stock;
   4. demand ~ Poisson(mu_i) arrives; unmet demand is lost (lost sales);
   5. the team reward is -(holding + stockout + ordering cost), shared by all
-     warehouses.
+     warehouses; the ordering cost is a per-unit cost plus an optional fixed cost
+     for every warehouse that receives a non-zero order.
 
 Warehouses are heterogeneous (different demand means and stockout penalties)
 and the capacity is only slightly above the mean total demand, so "who orders
@@ -30,6 +31,7 @@ class EnvConfig:
     holding_cost: tuple = (1.0, 1.0, 1.0, 1.0)
     stockout_cost: tuple = (2.0, 4.0, 8.0, 16.0)  # heterogeneous priority: higher penalty = more important
     order_cost: float = 0.0
+    fixed_cost: float = 0.0                  # charged once per warehouse in every period it receives an order
     capacity_ratio: float = 1.05             # supplier capacity = ratio * mean total demand
     init_inventory_ratio: float = 1.0        # initial inventory = ratio * mu_i
     reward_scale: float = 0.01
@@ -94,7 +96,7 @@ class ReplenishmentEnv:
 
         holding = (self.h * self.inventory).sum(axis=1)
         stockout = (self.b * lost).sum(axis=1)
-        ordering = cfg.order_cost * filled.sum(axis=1)
+        ordering = cfg.order_cost * filled.sum(axis=1) + cfg.fixed_cost * (filled > 0).sum(axis=1)
         cost = holding + stockout + ordering
 
         self.last_demand = demand
@@ -106,6 +108,7 @@ class ReplenishmentEnv:
             "cost": cost,
             "holding": holding,
             "stockout": stockout,
+            "ordering": ordering,
             "lost_units": lost.sum(axis=1),
             "rationed": (total[:, 0] > self.capacity).astype(np.float64),
         }

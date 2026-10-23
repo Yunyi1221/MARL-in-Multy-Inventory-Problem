@@ -24,7 +24,7 @@ import numpy as np
 from ormat.baselines import critical_ratio_levels, evaluate_policy
 from ormat.envs import EnvConfig, ReplenishmentEnv
 
-RULES = ("priority", "urgency", "marginal")
+RULES = ("proportional", "priority", "urgency", "marginal")
 
 
 def poisson_cdf_table(mean, k_max):
@@ -38,11 +38,12 @@ def poisson_cdf_table(mean, k_max):
 
 
 class RationedBaseStockPolicy:
-    def __init__(self, cfg: EnvConfig, S, rule="priority"):
+    def __init__(self, cfg: EnvConfig, S, rule="priority", s=None):
         if rule not in RULES:
             raise ValueError(f"rule must be one of {RULES}")
         self.cfg, self.rule = cfg, rule
         self.S = np.asarray(S, dtype=np.float64)
+        self.s = None if s is None else np.asarray(s, dtype=np.float64)  # reorder points of an (s, S) policy
         self.mu = np.asarray(cfg.demand_mean, dtype=np.float64)
         self.h = np.asarray(cfg.holding_cost, dtype=np.float64)
         self.b = np.asarray(cfg.stockout_cost, dtype=np.float64)
@@ -53,12 +54,15 @@ class RationedBaseStockPolicy:
 
     def want(self, env: ReplenishmentEnv):
         """Order-up-to quantity per warehouse before rationing, (n_envs, n_agents)."""
+        pos = env.inventory_position()
+        if self.s is not None:  # (s, S): order up to S only once the position drops below s
+            return np.clip(np.round(np.where(pos < self.s, self.S - pos, 0.0)), 0, self.cfg.max_order)
         S = self.S
         if self.rule == "marginal":
             # a unit with non-positive marginal value is never ordered, which caps the
             # inventory position at the critical-ratio level
             S = np.minimum(S, self.S_cr)
-        return np.clip(np.round(S - env.inventory_position()), 0, self.cfg.max_order)
+        return np.clip(np.round(S - pos), 0, self.cfg.max_order)
 
     def act(self, env: ReplenishmentEnv):
         return self.ration(env, self.want(env))
@@ -69,6 +73,8 @@ class RationedBaseStockPolicy:
         out = np.zeros_like(want, dtype=np.float64)
         left = np.full(E, float(self.capacity))
         rows = np.arange(E)
+        if self.rule == "proportional":  # the environment scales oversized orders down itself
+            return want.astype(np.int64)
         if self.rule == "marginal":
             y = env.inventory_position().copy()
             for _ in range(self.capacity):
@@ -98,47 +104,63 @@ class RationedBaseStockPolicy:
 
 @functools.lru_cache(maxsize=None)
 def tuned_levels(cfg_key, rule):
-    """Cached tune() for a config given as a sorted tuple of its fields."""
-    return tune(EnvConfig(**dict(cfg_key)), rule)[0]
+    """Cached tune() for a config given as a sorted tuple of its fields; returns (S, s)."""
+    S, s, _ = tune(EnvConfig(**dict(cfg_key)), rule)
+    return S, s
 
 
 def tune(cfg: EnvConfig, rule, n_episodes=400, seed=999, span=6, passes=3):
-    """Coordinate descent over per-warehouse offsets to the critical-ratio levels."""
+    """Coordinate descent over per-warehouse levels, starting from the best common setting.
+
+    Without a fixed ordering cost the policy is base-stock and only the offset to the
+    critical-ratio level is tuned. With a fixed cost it is (s, S): the offset of S and the
+    gap S - s are tuned per warehouse. Returns (S, s or None, tuning cost)."""
     S_cr = np.asarray(critical_ratio_levels(cfg), dtype=np.float64)
+    N = cfg.n_agents
+    use_gap = cfg.fixed_cost > 0
+    offsets = range(-span, 2 * span + 1) if use_gap else range(-span, span + 1)
+    gaps = range(0, cfg.max_order + 1, 2) if use_gap else (0,)
 
-    def cost(off):
+    def policy(off, gap):
         S = np.maximum(S_cr + off, 0)
-        return evaluate_policy(RationedBaseStockPolicy(cfg, S, rule), cfg, n_episodes, seed)[0]
+        return RationedBaseStockPolicy(cfg, S, rule, s=S - gap if use_gap else None)
 
-    # start from the best common offset, as in baselines.best_baselines
-    best_c, best_off = min((cost(np.full(cfg.n_agents, d)), d) for d in range(-span, span + 1))
-    off = np.full(cfg.n_agents, float(best_off))
+    def cost(off, gap):
+        return evaluate_policy(policy(off, gap), cfg, n_episodes, seed)[0]
+
+    best_c, d0, g0 = min((cost(np.full(N, d), np.full(N, g)), d, g) for d in offsets for g in gaps)
+    off, gap = np.full(N, float(d0)), np.full(N, float(g0))
     for _ in range(passes):
         changed = False
-        for i in range(cfg.n_agents):
-            for d in range(-span, span + 1):
-                if d == off[i]:
-                    continue
-                trial = off.copy()
-                trial[i] = d
-                c = cost(trial)
-                if c < best_c - 1e-9:
-                    best_c, off, changed = c, trial, True
+        for i in range(N):
+            for d in offsets:
+                for g in gaps:
+                    if d == off[i] and g == gap[i]:
+                        continue
+                    o2, g2 = off.copy(), gap.copy()
+                    o2[i], g2[i] = d, g
+                    c = cost(o2, g2)
+                    if c < best_c - 1e-9:
+                        best_c, off, gap, changed = c, o2, g2, True
         if not changed:
             break
-    return np.maximum(S_cr + off, 0), best_c
+    pol = policy(off, gap)
+    return pol.S, pol.s, best_c
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--capacity-ratio", type=float, default=EnvConfig.capacity_ratio)
+    p.add_argument("--fixed-cost", type=float, default=EnvConfig.fixed_cost)
     p.add_argument("--episodes", type=int, default=200)
+    p.add_argument("--rules", nargs="+", choices=RULES, default=list(RULES))
     args = p.parse_args()
-    cfg = EnvConfig(capacity_ratio=args.capacity_ratio)
-    for rule in RULES:
-        S, tune_cost = tune(cfg, rule)
-        mean, std = evaluate_policy(RationedBaseStockPolicy(cfg, S, rule), cfg, args.episodes)
-        print(f"{rule:9s} S={S.astype(int).tolist()} tuning cost {tune_cost:7.1f} | eval cost {mean:7.1f} ± {std:5.1f}",
+    cfg = EnvConfig(capacity_ratio=args.capacity_ratio, fixed_cost=args.fixed_cost)
+    for rule in args.rules:
+        S, s, tune_cost = tune(cfg, rule)
+        mean, std = evaluate_policy(RationedBaseStockPolicy(cfg, S, rule, s), cfg, args.episodes)
+        levels = f"S={S.astype(int).tolist()}" + ("" if s is None else f" s={s.astype(int).tolist()}")
+        print(f"{rule:12s} {levels} tuning cost {tune_cost:7.1f} | eval cost {mean:7.1f} ± {std:5.1f}",
               flush=True)
 
 

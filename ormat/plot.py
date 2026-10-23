@@ -39,9 +39,11 @@ def main():
     p.add_argument("--results", default="ormat/results")
     p.add_argument("--capacity-ratio", type=float, default=EnvConfig.capacity_ratio)
     p.add_argument("--ylim", type=float, nargs=2, default=None, help="zoom the cost axis, e.g. --ylim 1150 1350")
+    p.add_argument("--fixed-cost", type=float, default=EnvConfig.fixed_cost,
+                   help="fixed cost per warehouse order")
     args = p.parse_args()
 
-    cfg = EnvConfig(capacity_ratio=args.capacity_ratio)
+    cfg = EnvConfig(capacity_ratio=args.capacity_ratio, fixed_cost=args.fixed_cost)
     baselines = best_baselines(cfg, 200)  # same number of evaluation episodes as train.py
 
     runs = load(args.results)

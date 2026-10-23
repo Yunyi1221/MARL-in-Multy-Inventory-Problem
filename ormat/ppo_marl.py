@@ -33,6 +33,8 @@ def parse_args():
     p.add_argument("--algo", choices=ALGOS, default="mappo")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--capacity-ratio", type=float, default=EnvConfig.capacity_ratio)
+    p.add_argument("--fixed-cost", type=float, default=EnvConfig.fixed_cost,
+                   help="fixed cost per warehouse order")
     p.add_argument("--n-envs", type=int, default=32)
     p.add_argument("--updates", type=int, default=300)
     p.add_argument("--lr", type=float, default=5e-4)
@@ -128,7 +130,7 @@ def main():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    cfg = EnvConfig(capacity_ratio=args.capacity_ratio)
+    cfg = EnvConfig(capacity_ratio=args.capacity_ratio, fixed_cost=args.fixed_cost)
     env = make_env(cfg, args.n_envs, args.seed, args.residual, args.max_delta, args.residual_base)
     N, T, E = env.n_agents, cfg.horizon, args.n_envs
     model = Agents(args.algo, env.obs_dim, env.n_actions, N, args.hidden)

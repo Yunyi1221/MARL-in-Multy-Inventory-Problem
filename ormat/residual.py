@@ -45,14 +45,16 @@ def heuristic_policy(cfg: EnvConfig, rule: str = "priority"):
 
     priority  the original heuristic: one common offset to the critical-ratio levels,
               capacity served in order of decreasing stockout penalty
-    marginal  per-warehouse levels, capacity given unit by unit to the warehouse with the
-              largest newsvendor marginal value (see strong_heuristics.py)
+    marginal  per-warehouse levels ((s, S) when there is a fixed ordering cost), capacity
+              given unit by unit to the warehouse with the largest newsvendor marginal
+              value (see strong_heuristics.py)
     """
     key = tuple(sorted(vars(cfg).items()))
     if rule == "priority":
         S = np.maximum(np.asarray(critical_ratio_levels(cfg)) + _tuned_offset(key), 0)
     else:
-        S = tuned_levels(key, rule)
+        S, s = tuned_levels(key, rule)
+        return RationedBaseStockPolicy(cfg, S, rule, s)
     return RationedBaseStockPolicy(cfg, S, rule)
 
 
